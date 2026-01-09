@@ -1,6 +1,8 @@
 
 const ChatMessage = require('../models/ChatMessage');
 const ChatRoom = require('../models/ChatRoom');
+const User = require('../models/User');
+const Doctor = require('../models/Doctor');
 const jwt = require('jsonwebtoken');
 
 const connectedUsers = new Map(); // userId -> socketId mapping
@@ -149,28 +151,66 @@ const handleSocketConnection = (io) => {
     });
 
     // Handle call initiation
-    socket.on('initiate_call', ({ callerId, receiverId, callType }) => {
-      console.log('📞 Call initiated:', { callerId, receiverId, callType });
+    socket.on('initiate_call', async ({ callerId, receiverId, callType, channelName, callerName }) => {
+      console.log('📞 Call initiated:', { callerId, receiverId, callType, channelName, callerName });
       
       const receiverSocketId = connectedUsers.get(receiverId);
       const callerSocketId = connectedUsers.get(callerId);
       
       if (receiverSocketId) {
-        // Send call notification to receiver
+        // Fetch caller info from database if not provided
+        let finalCallerName = callerName;
+        if (!finalCallerName) {
+          try {
+            const caller = await User.findById(callerId).select('name email role');
+            if (caller) {
+              finalCallerName = caller.name;
+              // If caller is a doctor, try to get name from Doctor model
+              if (caller.role === 'doctor') {
+                const doctor = await Doctor.findOne({ email: caller.email.toLowerCase().trim() });
+                if (doctor) {
+                  finalCallerName = doctor.name;
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error fetching caller info:', error);
+            finalCallerName = 'Unknown';
+          }
+        }
+        
+        // Generate channel name if not provided
+        let finalChannelName = channelName;
+        if (!finalChannelName) {
+          const sorted = [callerId, receiverId].sort();
+          finalChannelName = `call_${sorted[0]}_${sorted[1]}`;
+        }
+        
+        // Send call notification to receiver with all necessary info
         io.to(receiverSocketId).emit('incoming_call', {
           callerId,
           receiverId,
           callType,
+          channelName: finalChannelName,
+          callerName: finalCallerName,
           callerSocketId,
           receiverSocketId
         });
         
-        console.log('📞 Call notification sent to receiver');
+        console.log('📞 Call notification sent to receiver:', {
+          receiverId,
+          callerName: finalCallerName,
+          channelName: finalChannelName,
+          callType
+        });
       } else {
         // Receiver is offline
-        io.to(callerSocketId).emit('call_failed', {
-          reason: 'User is offline'
-        });
+        console.log('❌ Receiver is offline:', receiverId);
+        if (callerSocketId) {
+          io.to(callerSocketId).emit('call_failed', {
+            reason: 'User is offline'
+          });
+        }
       }
     });
 

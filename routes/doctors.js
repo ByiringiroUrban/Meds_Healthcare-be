@@ -43,20 +43,74 @@ router.get('/all', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/doctors/:id - Get doctor by ID
+// GET /api/doctors/:id - Get doctor by ID (handles both Doctor and User IDs)
 router.get('/:id', async (req, res) => {
   try {
-    const doctor = await Doctor.findById(req.params.id)
+    // First, try to find in Doctor collection
+    let doctor = await Doctor.findById(req.params.id)
       .populate('specialtyId', 'name description');
     
-    if (!doctor) {
-      return res.status(404).json({ error: 'Doctor not found' });
+    if (doctor) {
+      return res.json(doctor);
     }
     
-    res.json(doctor);
+    // If not found in Doctor collection, try User collection
+    const User = require('../models/User');
+    const user = await User.findById(req.params.id);
+    
+    if (user && user.role === 'doctor') {
+      // Try to find doctor by email
+      doctor = await Doctor.findOne({ email: user.email.toLowerCase().trim() })
+        .populate('specialtyId', 'name description');
+      
+      if (doctor) {
+        return res.json(doctor);
+      }
+      
+      // If doctor doesn't exist in Doctor collection, create a basic entry
+      // This handles cases where doctor was created in User but not synced
+      const Specialty = require('../models/Specialty');
+      let specialtyDoc = await Specialty.findOne({ name: user.specialty || 'General Medicine' });
+      
+      if (!specialtyDoc) {
+        specialtyDoc = await Specialty.findOne({ name: 'General Medicine' });
+        if (!specialtyDoc) {
+          specialtyDoc = new Specialty({ 
+            name: 'General Medicine', 
+            description: 'General medical practice' 
+          });
+          await specialtyDoc.save();
+        }
+      }
+      
+      // Create doctor entry from user data
+      doctor = new Doctor({
+        name: user.name,
+        email: user.email.toLowerCase().trim(),
+        specialtyId: specialtyDoc._id,
+        specialty: user.specialty || 'General Medicine',
+        experience: user.experience || 5,
+        consultationFee: 50,
+        rating: 4.5,
+        qualifications: user.bio ? [user.bio] : [],
+        isAvailable: true,
+        isActive: true
+      });
+      
+      await doctor.save();
+      console.log('✅ Created Doctor entry from User:', doctor.email);
+      
+      const populatedDoctor = await Doctor.findById(doctor._id)
+        .populate('specialtyId', 'name description');
+      
+      return res.json(populatedDoctor);
+    }
+    
+    // Not found in either collection
+    return res.status(404).json({ error: 'Doctor not found' });
   } catch (error) {
     console.error('Error fetching doctor:', error);
-    res.status(500).json({ error: 'Failed to fetch doctor' });
+    res.status(500).json({ error: 'Failed to fetch doctor', details: error.message });
   }
 });
 
@@ -111,14 +165,30 @@ router.post('/', authenticate, async (req, res) => {
 
     await doctor.save();
 
-    // Also create corresponding User entry for login access
+    // CRITICAL: Always create/update corresponding User entry for chat and login access
+    const User = require('../models/User');
+    
     try {
-      const User = require('../models/User');
-      
       // Check if user already exists
       const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
       
-      if (!existingUser) {
+      if (existingUser) {
+        // Update existing user to ensure it matches doctor data
+        existingUser.name = name.trim();
+        existingUser.role = 'doctor';
+        existingUser.specialty = specialty.name;
+        existingUser.experience = experience;
+        existingUser.bio = qualifications ? qualifications.join(', ') : '';
+        existingUser.verified = true;
+        existingUser.isActive = true;
+        // Update password if provided
+        if (password && password !== 'defaultPassword123') {
+          existingUser.password = password;
+        }
+        await existingUser.save();
+        console.log('✅ Updated existing User entry for doctor:', existingUser.email);
+      } else {
+        // Create new user entry
         const userEntry = new User({
           name: name.trim(),
           email: email.toLowerCase().trim(),
@@ -134,10 +204,12 @@ router.post('/', authenticate, async (req, res) => {
         });
         
         await userEntry.save();
+        console.log('✅ Created new User entry for doctor:', userEntry.email);
       }
     } catch (userCreationError) {
-      console.error('Error creating user entry for doctor:', userCreationError);
-      // Don't fail the doctor creation if user entry creation fails
+      console.error('❌ Error creating/updating user entry for doctor:', userCreationError);
+      // If user creation fails, we should still have the doctor, but log the error
+      // This ensures doctors are always created even if User sync fails
     }
     
     const populatedDoctor = await Doctor.findById(doctor._id)
@@ -200,6 +272,27 @@ router.put('/:id', authenticate, async (req, res) => {
 
     await doctor.save();
     
+    // CRITICAL: Sync User collection when doctor is updated
+    try {
+      const User = require('../models/User');
+      await User.findOneAndUpdate(
+        { email: doctor.email.toLowerCase().trim() },
+        { 
+          name: doctor.name,
+          experience: doctor.experience,
+          bio: doctor.qualifications ? doctor.qualifications.join(', ') : '',
+          specialty: doctor.specialty,
+          role: 'doctor',
+          verified: true,
+          isActive: doctor.isActive !== false
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      console.log('✅ Synced User entry after doctor update:', doctor.email);
+    } catch (userUpdateError) {
+      console.error('❌ Error syncing user after doctor update:', userUpdateError);
+    }
+    
     const populatedDoctor = await Doctor.findById(doctor._id)
       .populate('specialtyId', 'name description');
     
@@ -220,11 +313,22 @@ router.delete('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
 
-    const doctor = await Doctor.findByIdAndDelete(req.params.id);
+    const doctor = await Doctor.findById(req.params.id);
     if (!doctor) {
       return res.status(404).json({ error: 'Doctor not found' });
     }
 
+    // Also delete corresponding User entry
+    try {
+      const User = require('../models/User');
+      await User.findOneAndDelete({ email: doctor.email.toLowerCase().trim() });
+      console.log('✅ Deleted User entry for doctor:', doctor.email);
+    } catch (userDeleteError) {
+      console.error('❌ Error deleting user entry:', userDeleteError);
+      // Continue with doctor deletion even if user deletion fails
+    }
+
+    await Doctor.findByIdAndDelete(req.params.id);
     res.json({ message: 'Doctor deleted successfully' });
   } catch (error) {
     console.error('Error deleting doctor:', error);
@@ -264,19 +368,25 @@ router.put('/profile', authenticate, async (req, res) => {
 
     await doctor.save();
 
-    // Also update User collection
+    // CRITICAL: Always sync User collection to ensure chat works
     try {
       const User = require('../models/User');
-      await User.findOneAndUpdate(
-        { email: doctor.email },
+      const userUpdate = await User.findOneAndUpdate(
+        { email: doctor.email.toLowerCase().trim() },
         { 
           name: doctor.name,
           experience: doctor.experience,
-          bio: doctor.qualifications ? doctor.qualifications.join(', ') : ''
-        }
+          bio: doctor.qualifications ? doctor.qualifications.join(', ') : '',
+          specialty: doctor.specialty,
+          role: 'doctor',
+          verified: true,
+          isActive: true
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
       );
+      console.log('✅ Synced User entry for doctor:', userUpdate.email);
     } catch (userUpdateError) {
-      console.error('Error updating user profile:', userUpdateError);
+      console.error('❌ Error syncing user profile:', userUpdateError);
     }
     
     const populatedDoctor = await Doctor.findById(doctor._id)

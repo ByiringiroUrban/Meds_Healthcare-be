@@ -19,6 +19,8 @@ const activityRoutes = require('./routes/activities');
 const testimonialRoutes = require('./routes/testimonials');
 const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
+const syncDoctorsRoutes = require('./routes/syncDoctors');
+const agoraRoutes = require('./routes/agora');
 
 // Load environment variables
 dotenv.config();
@@ -72,6 +74,8 @@ app.use('/api/testimonials', testimonialRoutes);
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api', syncDoctorsRoutes);
+app.use('/api/agora', agoraRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

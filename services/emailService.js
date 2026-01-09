@@ -6,7 +6,7 @@ const createTransport = () => {
     service: "gmail",
     auth: {
       user: 'urbanpac20@gmail.com',
-      pass: 'txwy ywhl avow hbcr'
+      pass: 'nrsjziujoqnshkaw'
     }
   });
 };

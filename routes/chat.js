@@ -27,7 +27,44 @@ router.get('/rooms', authenticate, async (req, res) => {
     .populate('lastMessage')
     .sort({ lastActivity: -1 });
 
-    res.json(rooms);
+    // Update doctor names from Doctor model for accurate display and sync User model
+    const updatedRooms = await Promise.all(rooms.map(async (room) => {
+      const roomObj = room.toObject();
+      if (roomObj.participants) {
+        for (let i = 0; i < roomObj.participants.length; i++) {
+          const participant = roomObj.participants[i];
+          if (participant.role === 'doctor') {
+            // Try to find doctor by email first
+            let doctor = await Doctor.findOne({ email: participant.email.toLowerCase().trim() });
+            
+            // If not found by email, try to find by User ID
+            if (!doctor) {
+              doctor = await Doctor.findById(participant._id);
+            }
+            
+            if (doctor) {
+              console.log(`🔄 Updating doctor name in room: "${participant.name}" → "${doctor.name}"`);
+              // Always use doctor's name from Doctor model
+              roomObj.participants[i].name = doctor.name;
+              
+              // Sync User model name with Doctor model name if different
+              if (doctor.name !== participant.name) {
+                await User.findByIdAndUpdate(participant._id, { name: doctor.name });
+                console.log(`✅ Synced User name "${participant.name}" → "${doctor.name}"`);
+              }
+            } else {
+              console.log(`⚠️ Doctor not found for:`, {
+                email: participant.email,
+                id: participant._id.toString()
+              });
+            }
+          }
+        }
+      }
+      return roomObj;
+    }));
+
+    res.json(updatedRooms);
   } catch (error) {
     console.error('Error fetching chat rooms:', error);
     res.status(500).json({ error: 'Failed to fetch chat rooms' });
@@ -201,9 +238,24 @@ router.post('/rooms/create', authenticate, async (req, res) => {
 
     // Verify participant exists (check both User and Doctor collections)
     let participant = await User.findById(participantId);
+    let actualParticipantId = participantId;
+    
+    // If not found in User, check Doctor collection and find corresponding User
     if (!participant) {
-      participant = await Doctor.findById(participantId);
+      const doctor = await Doctor.findById(participantId);
+      if (doctor) {
+        // Find the User entry for this doctor by email
+        participant = await User.findOne({ email: doctor.email });
+        if (participant) {
+          actualParticipantId = participant._id.toString();
+          console.log('✅ Found doctor, using User ID:', actualParticipantId);
+        } else {
+          console.log('❌ Doctor found but no corresponding User entry:', doctor.email);
+          return res.status(404).json({ error: 'Doctor user account not found. Please contact admin.' });
+        }
+      }
     }
+    
     if (!participant) {
       console.log('❌ Participant not found in User or Doctor collections:', participantId);
       return res.status(404).json({ error: 'Participant not found' });
@@ -211,14 +263,14 @@ router.post('/rooms/create', authenticate, async (req, res) => {
     
     console.log('✅ Participant found:', participant.name, 'Type:', participant.role || 'Doctor');
 
-    // Find existing room or create new one
+    // Find existing room or create new one (use actual User ID)
     let room = await ChatRoom.findOne({
-      participants: { $all: [userId, participantId] }
+      participants: { $all: [userId, actualParticipantId] }
     }).populate('participants', 'name email role');
 
     if (!room) {
       room = new ChatRoom({
-        participants: [userId, participantId],
+        participants: [userId, actualParticipantId],
         lastActivity: new Date(),
         unreadCount: new Map()
       });
@@ -226,8 +278,62 @@ router.post('/rooms/create', authenticate, async (req, res) => {
       await room.populate('participants', 'name email role');
     }
 
+    // Always update doctor names from Doctor model for accurate display
+    const populatedRoom = await ChatRoom.findById(room._id).populate({
+      path: 'participants',
+      select: 'name email role'
+    });
+    
+    // Convert to plain object to allow modifications
+    const roomObj = populatedRoom.toObject();
+    
+    // Update doctor names from Doctor model and sync User model
+    for (let i = 0; i < roomObj.participants.length; i++) {
+      const participant = roomObj.participants[i];
+      if (participant.role === 'doctor') {
+        console.log(`🔍 Looking up doctor for participant:`, {
+          participantId: participant._id.toString(),
+          participantEmail: participant.email,
+          participantName: participant.name
+        });
+        
+        // Try to find doctor by email first
+        let doctor = await Doctor.findOne({ email: participant.email.toLowerCase().trim() });
+        
+        // If not found by email, try to find by User ID (in case User._id matches Doctor._id)
+        if (!doctor) {
+          doctor = await Doctor.findById(participant._id);
+        }
+        
+        if (doctor) {
+          console.log(`✅ Found doctor in Doctor model:`, {
+            doctorId: doctor._id.toString(),
+            doctorName: doctor.name,
+            userEmail: participant.email,
+            userName: participant.name
+          });
+          
+          // Always use doctor's name from Doctor model
+          const originalName = roomObj.participants[i].name;
+          roomObj.participants[i].name = doctor.name;
+          
+          // Sync User model name with Doctor model name
+          if (doctor.name !== originalName) {
+            await User.findByIdAndUpdate(participant._id, { name: doctor.name });
+            console.log(`🔄 Synced User name: "${originalName}" → "${doctor.name}"`);
+          }
+        } else {
+          console.log(`❌ Doctor not found in Doctor model for:`, {
+            email: participant.email,
+            id: participant._id.toString()
+          });
+        }
+      }
+    }
+
     console.log('✅ Room created/found successfully:', room._id);
-    res.json(room);
+    console.log('👥 Final participants:', roomObj.participants.map(p => ({ id: p._id.toString(), name: p.name, email: p.email, role: p.role })));
+    res.json(roomObj);
   } catch (error) {
     console.error('❌ Error creating/getting room:', error);
     console.error('Stack trace:', error.stack);

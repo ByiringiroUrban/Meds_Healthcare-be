@@ -16,7 +16,7 @@ import ChatMessage from "./models/ChatMessage.js";
 import Stats from "./models/Stats.js";
 import Testimonial from "./models/Testimonial.js";
 
-const MONGO_URI = "mongodb+srv://wiseacademy:01402@cluster0.bsxehn0.mongodb.net/meds?retryWrites=true&w=majority&appName=Cluster0"; 
+const MONGO_URI = "mongodb+srv://root:12345@cluster-1.agg1j.mongodb.net/meds-health?retryWrites=true&w=majority&appName=Cluster-1"; 
 
 async function seed() {
   try {
