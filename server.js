@@ -21,6 +21,7 @@ const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
 const syncDoctorsRoutes = require('./routes/syncDoctors');
 const agoraRoutes = require('./routes/agora');
+const emergencyRoutes = require('./routes/emergency');
 
 // Load environment variables
 dotenv.config();
@@ -37,14 +38,12 @@ const io = socketIo(server, {
   }
 });
 
+// Make io available to routes
+app.set('io', io);
+
 // Socket.IO connection handling
-io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
-  
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
-  });
-});
+const { handleSocketConnection } = require('./socket/socketHandlers');
+handleSocketConnection(io);
 
 // Connection error debugging
 io.engine.on("connection_error", (err) => {
@@ -60,6 +59,8 @@ app.use(express.json());
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
+// Serve emergency voice messages
+app.use('/uploads/emergency-voice', express.static('uploads/emergency-voice'));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -76,6 +77,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', syncDoctorsRoutes);
 app.use('/api/agora', agoraRoutes);
+app.use('/api/emergency', emergencyRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

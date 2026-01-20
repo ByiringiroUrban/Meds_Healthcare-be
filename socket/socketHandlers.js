@@ -3,6 +3,7 @@ const ChatMessage = require('../models/ChatMessage');
 const ChatRoom = require('../models/ChatRoom');
 const User = require('../models/User');
 const Doctor = require('../models/Doctor');
+const Emergency = require('../models/Emergency');
 const jwt = require('jsonwebtoken');
 
 const connectedUsers = new Map(); // userId -> socketId mapping
@@ -240,6 +241,59 @@ const handleSocketConnection = (io) => {
     socket.on('end_call', ({ targetSocketId }) => {
       io.to(targetSocketId).emit('call_ended');
       socket.emit('call_ended');
+    });
+
+    // Handle emergency alert creation
+    socket.on('create_emergency', async (data) => {
+      try {
+        console.log('🚨 Emergency alert received via socket:', data);
+        
+        // This is handled by the REST API, but we can emit notifications here
+        // The actual creation happens in the POST /api/emergency route
+        socket.broadcast.emit('emergency_alert', data);
+      } catch (error) {
+        console.error('❌ Error handling emergency alert:', error);
+      }
+    });
+
+    // Handle joining emergency monitoring rooms (for admins/doctors)
+    socket.on('join_emergency_monitoring', async (userId) => {
+      try {
+        const user = await User.findById(userId);
+        if (user && (user.role === 'admin' || user.role === 'doctor')) {
+          socket.join('admins');
+          socket.join('doctors');
+          console.log('✅ User joined emergency monitoring:', userId);
+        }
+      } catch (error) {
+        console.error('❌ Error joining emergency monitoring:', error);
+      }
+    });
+
+    // Handle emergency status updates
+    socket.on('emergency_status_update', async (data) => {
+      try {
+        const { emergencyId, status, userId } = data;
+        
+        const emergency = await Emergency.findById(emergencyId);
+        if (emergency) {
+          // Emit to patient
+          const patientSocketId = connectedUsers.get(emergency.patientId.toString());
+          if (patientSocketId) {
+            io.to(patientSocketId).emit('emergency_status_changed', {
+              emergencyId,
+              status,
+              message: `Emergency status updated to ${status}`
+            });
+          }
+          
+          // Emit to all admins and doctors
+          io.to('admins').emit('emergency_updated', { emergencyId, status });
+          io.to('doctors').emit('emergency_updated', { emergencyId, status });
+        }
+      } catch (error) {
+        console.error('❌ Error updating emergency status:', error);
+      }
     });
 
     // Handle disconnect
