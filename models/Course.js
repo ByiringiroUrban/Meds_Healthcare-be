@@ -27,7 +27,7 @@ const courseSchema = new mongoose.Schema({
   },
   image: {
     type: String,
-    default: '/placeholder.svg'
+    default: '/placeholder.png'
   },
   videoUrl: {
     type: String,

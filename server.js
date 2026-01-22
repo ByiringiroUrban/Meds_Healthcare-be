@@ -5,6 +5,7 @@ const dotenv = require('dotenv');
 const http = require('http');
 const socketIo = require('socket.io');
 const connectDB = require('./config/db');
+const { handleSocketConnection } = require('./socket/socketHandlers');
 
 
 // Import routes
@@ -19,9 +20,6 @@ const activityRoutes = require('./routes/activities');
 const testimonialRoutes = require('./routes/testimonials');
 const chatRoutes = require('./routes/chat');
 const adminRoutes = require('./routes/admin');
-const syncDoctorsRoutes = require('./routes/syncDoctors');
-const agoraRoutes = require('./routes/agora');
-const emergencyRoutes = require('./routes/emergency');
 
 // Load environment variables
 dotenv.config();
@@ -35,19 +33,19 @@ const io = socketIo(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e8,
+  transports: ['websocket', 'polling']
 });
 
-// Make io available to routes
-app.set('io', io);
-
-// Socket.IO connection handling
-const { handleSocketConnection } = require('./socket/socketHandlers');
+// Initialize socket handlers (this replaces the duplicate handler below)
 handleSocketConnection(io);
 
 // Connection error debugging
 io.engine.on("connection_error", (err) => {
-  console.log("Connection error details:");
+  console.log("❌ Socket connection error details:");
   console.log("Error code:", err.code);
   console.log("Error message:", err.message);
   console.log("Error context:", err.context);
@@ -59,8 +57,6 @@ app.use(express.json());
 
 // Serve static files from uploads directory
 app.use('/uploads', express.static('uploads'));
-// Serve emergency voice messages
-app.use('/uploads/emergency-voice', express.static('uploads/emergency-voice'));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -75,9 +71,6 @@ app.use('/api/testimonials', testimonialRoutes);
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
-app.use('/api', syncDoctorsRoutes);
-app.use('/api/agora', agoraRoutes);
-app.use('/api/emergency', emergencyRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

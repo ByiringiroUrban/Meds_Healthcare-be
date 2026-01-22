@@ -10,7 +10,7 @@ router.get('/', async (req, res) => {
     const { categoryId } = req.query;
     const filter = { isActive: true };
     if (categoryId) filter.categoryId = categoryId;
-    
+
     const courses = await Course.find(filter)
       .populate('categoryId', 'name description')
       .sort({ createdAt: -1 });
@@ -27,7 +27,7 @@ router.get('/all', authenticate, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
-    
+
     const courses = await Course.find()
       .populate('categoryId', 'name description')
       .sort({ createdAt: -1 });
@@ -42,15 +42,15 @@ router.get('/all', authenticate, async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const course = await Course.findById(req.params.id);
-    
+
     if (!course) {
       return res.status(404).json({ error: 'Health guide not found' });
     }
-    
+
     // Increment views
     course.views += 1;
     await course.save();
-    
+
     res.json(course);
   } catch (error) {
     console.error('Error fetching health guide:', error);
@@ -65,19 +65,19 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
 
-    const { 
-      title, 
-      summary, 
-      content, 
-      categoryId, 
-      image, 
-      videoUrl, 
-      videoTitle 
+    const {
+      title,
+      summary,
+      content,
+      categoryId,
+      image,
+      videoUrl,
+      videoTitle
     } = req.body;
-    
+
     if (!title || !summary || !content || !categoryId) {
-      return res.status(400).json({ 
-        error: 'Title, summary, content, and category are required' 
+      return res.status(400).json({
+        error: 'Title, summary, content, and category are required'
       });
     }
 
@@ -94,7 +94,7 @@ router.post('/', authenticate, async (req, res) => {
       content: content.trim(),
       categoryId,
       category: category.name,
-      image: image || '/placeholder.svg',
+      image: image || '/placeholder.png',
       videoUrl: videoUrl || '',
       videoTitle: videoTitle || ''
     });
@@ -119,15 +119,15 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Health guide not found' });
     }
 
-    const { 
-      title, 
-      summary, 
-      content, 
-      categoryId, 
-      image, 
-      videoUrl, 
+    const {
+      title,
+      summary,
+      content,
+      categoryId,
+      image,
+      videoUrl,
       videoTitle,
-      isActive 
+      isActive
     } = req.body;
 
     if (title !== undefined) course.title = title.trim();

@@ -538,16 +538,38 @@ const uploadProfileImage = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { name, phone, bio, specialty, experience, consultationFee } = req.body;
+    const { name, email, phone, bio, specialty, experience, consultationFee, dateOfBirth, address } = req.body;
 
     const updateData = {};
     
     if (name) updateData.name = name.trim();
+    if (email) {
+      // Check if email is already taken by another user
+      const existingUser = await User.findOne({ 
+        email: email.toLowerCase().trim(),
+        _id: { $ne: userId }
+      });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use by another account'
+        });
+      }
+      updateData.email = email.toLowerCase().trim();
+    }
     if (phone) updateData.phone = phone.trim();
     if (bio) updateData.bio = bio.trim();
     if (specialty) updateData.specialty = specialty.trim();
     if (experience) updateData.experience = parseInt(experience);
     if (consultationFee) updateData.consultationFee = parseFloat(consultationFee);
+    if (dateOfBirth) {
+      const dob = new Date(dateOfBirth);
+      if (!isNaN(dob.getTime())) {
+        updateData.dateOfBirth = dob;
+      }
+    }
+    if (address !== undefined) updateData.address = address ? address.trim() : '';
+    if (req.body.avatar !== undefined) updateData.avatar = req.body.avatar;
 
     const user = await User.findByIdAndUpdate(
       userId,

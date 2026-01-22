@@ -23,7 +23,7 @@ router.get('/all', authenticate, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
-    
+
     const testimonials = await Testimonial.find()
       .sort({ createdAt: -1 });
     res.json(testimonials);
@@ -37,10 +37,10 @@ router.get('/all', authenticate, async (req, res) => {
 router.post('/', authenticate, async (req, res) => {
   try {
     const { content, rating, treatment } = req.body;
-    
+
     if (!content || !rating) {
-      return res.status(400).json({ 
-        error: 'Content and rating are required' 
+      return res.status(400).json({
+        error: 'Content and rating are required'
       });
     }
 
@@ -50,7 +50,7 @@ router.post('/', authenticate, async (req, res) => {
       content: content.trim(),
       rating,
       treatment: treatment || '',
-      avatar: req.user.avatar || '/placeholder.svg'
+      avatar: req.user.avatar || '/placeholder.png'
     });
 
     await testimonial.save();

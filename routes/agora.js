@@ -3,9 +3,9 @@ const router = express.Router();
 const { RtcTokenBuilder, RtcRole } = require('agora-token');
 const { authenticate } = require('../middleware/auth');
 
-// Agora credentials
-const AGORA_APP_ID = 'd2576b0a9b8d47769fd073e40235d33a';
-const AGORA_APP_CERTIFICATE = '0934096edcdf4b9c97d8ae42c5c2fc21';
+// Agora credentials for Meds Healthcare - loaded from environment variables
+const AGORA_APP_ID = process.env.AGORA_APP_ID || '901e5ee9d70847eab46f66efe0b1bb31';
+const AGORA_APP_CERTIFICATE = process.env.AGORA_APP_CERTIFICATE || '2c0b4410ad0b4ef78e4deac79e29c0ee';
 
 // Token expiration time (24 hours)
 const TOKEN_EXPIRATION_TIME = 3600 * 24;

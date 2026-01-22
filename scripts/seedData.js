@@ -9,7 +9,7 @@ dotenv.config();
 const seedData = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb://mongodb+srv://root:12345@cluster-1.agg1j.mongodb.net/medis-health?retryWrites=true&w=majority&appName=Cluster-1');
-    
+
     console.log('Seeding data...');
 
     // Clear existing data
@@ -69,7 +69,7 @@ const seedData = async () => {
         specialty: 'Cardiology',
         experience: 15,
         rating: 4.8,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Cardiology', 'FACC'],
         consultationFee: 150
       },
@@ -80,7 +80,7 @@ const seedData = async () => {
         specialty: 'Neurology',
         experience: 12,
         rating: 4.9,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Neurology', 'PhD'],
         consultationFee: 180
       },
@@ -91,7 +91,7 @@ const seedData = async () => {
         specialty: 'Pediatrics',
         experience: 8,
         rating: 4.7,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Pediatrics', 'AAP'],
         consultationFee: 120
       },
@@ -102,7 +102,7 @@ const seedData = async () => {
         specialty: 'Orthopedics',
         experience: 20,
         rating: 4.6,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Orthopedics', 'AAOS'],
         consultationFee: 160
       },
@@ -113,7 +113,7 @@ const seedData = async () => {
         specialty: 'Dermatology',
         experience: 10,
         rating: 4.8,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Dermatology', 'AAD'],
         consultationFee: 140
       },
@@ -124,7 +124,7 @@ const seedData = async () => {
         specialty: 'General Medicine',
         experience: 18,
         rating: 4.5,
-        image: '/placeholder.svg',
+        image: '/placeholder.png',
         qualifications: ['MD Internal Medicine', 'ABIM'],
         consultationFee: 100
       }
@@ -136,7 +136,7 @@ const seedData = async () => {
     console.log(`📊 Created ${specialties.length} specialties`);
     console.log(`👨‍⚕️ Created ${doctors.length} doctors`);
     console.log('📈 Created stats');
-    
+
     process.exit(0);
   } catch (error) {
     console.error('❌ Error seeding data:', error);

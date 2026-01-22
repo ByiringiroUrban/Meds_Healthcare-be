@@ -16,7 +16,7 @@ import ChatMessage from "./models/ChatMessage.js";
 import Stats from "./models/Stats.js";
 import Testimonial from "./models/Testimonial.js";
 
-const MONGO_URI = "mongodb+srv://root:12345@cluster-1.agg1j.mongodb.net/meds-health?retryWrites=true&w=majority&appName=Cluster-1"; 
+const MONGO_URI = "mongodb+srv://wiseacademy:01402@cluster0.bsxehn0.mongodb.net/meds?retryWrites=true&w=majority&appName=Cluster0";
 
 async function seed() {
   try {
@@ -43,7 +43,7 @@ async function seed() {
     const defaultPassword = "Password123!";
     const hashedPass = await bcrypt.hash(defaultPassword, 12);
 
-    // Sudan-specific specialties
+    // South Sudan-specific specialties
     const specialties = await Specialty.insertMany([
       { name: "General Medicine", description: "Basic healthcare and checkups", icon: "🩺" },
       { name: "Pediatrics", description: "Child healthcare services", icon: "👶" },
@@ -52,7 +52,7 @@ async function seed() {
       { name: "Orthopedics", description: "Bone and joint care", icon: "🦴" },
     ]);
 
-    // Sudan-specific categories
+    // South Sudan-specific categories
     const categories = await Category.insertMany([
       { name: "Health Awareness", description: "Community health campaigns", icon: "📢" },
       { name: "Medical Education", description: "Courses for students and doctors", icon: "📚" },
@@ -106,6 +106,13 @@ async function seed() {
           consultationFee: 100 + i * 20,
           password: hashedPass,
           qualifications: ["MBBS", "MD"],
+          address: [
+            "Atlabara, Juba",
+            "Hai Neem, Juba",
+            "Tongpiny, Juba",
+            "Munuki, Juba",
+            "Gudele, Juba"
+          ][i % 5],
         }))
     );
 
@@ -127,12 +134,12 @@ async function seed() {
     await Blog.insertMany(
       Array.from({ length: 5 }).map((_, i) => ({
         title: `Health Blog ${i + 1}`,
-        excerpt: `This is a short health tip from Sudan - post ${i + 1}`,
-        content: `Detailed health content for awareness in Sudan - article ${i + 1}.`,
+        excerpt: `This is a short health tip from South Sudan - post ${i + 1}`,
+        content: `Detailed health content for awareness in South Sudan - article ${i + 1}.`,
         author: savedUsers[0].name,
         authorId: savedUsers[0]._id,
         category: categories[i % categories.length].name,
-        tags: ["health", "Sudan"],
+        tags: ["health", "South Sudan"],
         views: 50 + i,
         likes: 10 + i,
       }))
@@ -142,7 +149,7 @@ async function seed() {
     await Course.insertMany(
       Array.from({ length: 5 }).map((_, i) => ({
         title: `Course ${i + 1} on Healthcare`,
-        summary: "Introductory medical course for Sudanese students.",
+        summary: "Introductory medical course for South Sudanese students.",
         content: "Course materials and lessons.",
         categoryId: categories[i % categories.length]._id,
         category: categories[i % categories.length].name,

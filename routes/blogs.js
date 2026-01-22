@@ -4,13 +4,30 @@ const router = express.Router();
 const Blog = require('../models/Blog');
 const { authenticate } = require('../middleware/auth');
 
+// Helper function to replace "Sudan" with "South Sudan" (but not "South Sudan")
+const sanitizeSudanReferences = (text) => {
+  if (!text || typeof text !== 'string') return text;
+  // Replace "Sudan" that is not already "South Sudan"
+  return text.replace(/\bSudan\b(?!\s+South)/g, 'South Sudan');
+};
+
 // GET /api/blogs - Get all published blogs
 router.get('/', async (req, res) => {
   try {
     const blogs = await Blog.find({ isPublished: true })
       .populate('authorId', 'name')
       .sort({ createdAt: -1 });
-    res.json(blogs);
+    
+    // Sanitize blog content to replace "Sudan" with "South Sudan"
+    const sanitizedBlogs = blogs.map(blog => ({
+      ...blog.toObject(),
+      title: sanitizeSudanReferences(blog.title),
+      excerpt: sanitizeSudanReferences(blog.excerpt),
+      content: sanitizeSudanReferences(blog.content),
+      tags: blog.tags ? blog.tags.map(tag => sanitizeSudanReferences(tag)) : blog.tags
+    }));
+    
+    res.json(sanitizedBlogs);
   } catch (error) {
     console.error('Error fetching blogs:', error);
     res.status(500).json({ error: 'Failed to fetch blogs' });
@@ -23,11 +40,21 @@ router.get('/all', authenticate, async (req, res) => {
     if (req.user.role !== 'admin') {
       return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
-    
+
     const blogs = await Blog.find()
       .populate('authorId', 'name')
       .sort({ createdAt: -1 });
-    res.json(blogs);
+    
+    // Sanitize blog content to replace "Sudan" with "South Sudan"
+    const sanitizedBlogs = blogs.map(blog => ({
+      ...blog.toObject(),
+      title: sanitizeSudanReferences(blog.title),
+      excerpt: sanitizeSudanReferences(blog.excerpt),
+      content: sanitizeSudanReferences(blog.content),
+      tags: blog.tags ? blog.tags.map(tag => sanitizeSudanReferences(tag)) : blog.tags
+    }));
+    
+    res.json(sanitizedBlogs);
   } catch (error) {
     console.error('Error fetching all blogs:', error);
     res.status(500).json({ error: 'Failed to fetch blogs' });
@@ -40,11 +67,21 @@ router.get('/my', authenticate, async (req, res) => {
     if (req.user.role !== 'admin' && req.user.role !== 'doctor') {
       return res.status(403).json({ error: 'Access denied. Admin or Doctor only.' });
     }
-    
+
     const blogs = await Blog.find({ authorId: req.user._id })
       .populate('authorId', 'name')
       .sort({ createdAt: -1 });
-    res.json(blogs);
+    
+    // Sanitize blog content to replace "Sudan" with "South Sudan"
+    const sanitizedBlogs = blogs.map(blog => ({
+      ...blog.toObject(),
+      title: sanitizeSudanReferences(blog.title),
+      excerpt: sanitizeSudanReferences(blog.excerpt),
+      content: sanitizeSudanReferences(blog.content),
+      tags: blog.tags ? blog.tags.map(tag => sanitizeSudanReferences(tag)) : blog.tags
+    }));
+    
+    res.json(sanitizedBlogs);
   } catch (error) {
     console.error('Error fetching user blogs:', error);
     res.status(500).json({ error: 'Failed to fetch blogs' });
@@ -56,16 +93,25 @@ router.get('/:id', async (req, res) => {
   try {
     const blog = await Blog.findById(req.params.id)
       .populate('authorId', 'name');
-    
+
     if (!blog) {
       return res.status(404).json({ error: 'Blog not found' });
     }
-    
+
     // Increment views
     blog.views += 1;
     await blog.save();
-    
-    res.json(blog);
+
+    // Sanitize blog content to replace "Sudan" with "South Sudan"
+    const sanitizedBlog = {
+      ...blog.toObject(),
+      title: sanitizeSudanReferences(blog.title),
+      excerpt: sanitizeSudanReferences(blog.excerpt),
+      content: sanitizeSudanReferences(blog.content),
+      tags: blog.tags ? blog.tags.map(tag => sanitizeSudanReferences(tag)) : blog.tags
+    };
+
+    res.json(sanitizedBlog);
   } catch (error) {
     console.error('Error fetching blog:', error);
     res.status(500).json({ error: 'Failed to fetch blog' });
@@ -79,19 +125,19 @@ router.post('/', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Admin or Doctor only.' });
     }
 
-    const { 
-      title, 
-      excerpt, 
-      content, 
-      category, 
-      tags, 
-      image, 
-      readTime 
+    const {
+      title,
+      excerpt,
+      content,
+      category,
+      tags,
+      image,
+      readTime
     } = req.body;
-    
+
     if (!title || !excerpt || !content || !category) {
-      return res.status(400).json({ 
-        error: 'Title, excerpt, content, and category are required' 
+      return res.status(400).json({
+        error: 'Title, excerpt, content, and category are required'
       });
     }
 
@@ -103,7 +149,7 @@ router.post('/', authenticate, async (req, res) => {
       authorId: req.user._id,
       category: category.trim(),
       tags: tags || [],
-      image: image || '/placeholder.svg',
+      image: image || '/placeholder.png',
       readTime: readTime || '5 min read'
     });
 
@@ -129,15 +175,15 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. You can only edit your own blogs.' });
     }
 
-    const { 
-      title, 
-      excerpt, 
-      content, 
-      category, 
-      tags, 
-      image, 
+    const {
+      title,
+      excerpt,
+      content,
+      category,
+      tags,
+      image,
       readTime,
-      isPublished 
+      isPublished
     } = req.body;
 
     if (title !== undefined) blog.title = title.trim();

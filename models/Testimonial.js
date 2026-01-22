@@ -30,7 +30,7 @@ const testimonialSchema = new mongoose.Schema({
   },
   avatar: {
     type: String,
-    default: '/placeholder.svg'
+    default: '/placeholder.png'
   },
   isApproved: {
     type: Boolean,

@@ -1,9 +1,6 @@
 
 const ChatMessage = require('../models/ChatMessage');
 const ChatRoom = require('../models/ChatRoom');
-const User = require('../models/User');
-const Doctor = require('../models/Doctor');
-const Emergency = require('../models/Emergency');
 const jwt = require('jsonwebtoken');
 
 const connectedUsers = new Map(); // userId -> socketId mapping
@@ -17,6 +14,16 @@ const handleSocketConnection = (io) => {
     socket.on('join_user', async (userId) => {
       try {
         console.log('👤 User joining:', userId, 'Socket:', socket.id);
+        
+        // If user already has a connection, disconnect the old one
+        const existingSocketId = connectedUsers.get(userId);
+        if (existingSocketId && existingSocketId !== socket.id) {
+          console.log('⚠️ User already connected, disconnecting old socket:', existingSocketId);
+          const oldSocket = io.sockets.sockets.get(existingSocketId);
+          if (oldSocket) {
+            oldSocket.disconnect(true);
+          }
+        }
         
         // Store user connection
         connectedUsers.set(userId, socket.id);
@@ -152,66 +159,28 @@ const handleSocketConnection = (io) => {
     });
 
     // Handle call initiation
-    socket.on('initiate_call', async ({ callerId, receiverId, callType, channelName, callerName }) => {
-      console.log('📞 Call initiated:', { callerId, receiverId, callType, channelName, callerName });
+    socket.on('initiate_call', ({ callerId, receiverId, callType }) => {
+      console.log('📞 Call initiated:', { callerId, receiverId, callType });
       
       const receiverSocketId = connectedUsers.get(receiverId);
       const callerSocketId = connectedUsers.get(callerId);
       
       if (receiverSocketId) {
-        // Fetch caller info from database if not provided
-        let finalCallerName = callerName;
-        if (!finalCallerName) {
-          try {
-            const caller = await User.findById(callerId).select('name email role');
-            if (caller) {
-              finalCallerName = caller.name;
-              // If caller is a doctor, try to get name from Doctor model
-              if (caller.role === 'doctor') {
-                const doctor = await Doctor.findOne({ email: caller.email.toLowerCase().trim() });
-                if (doctor) {
-                  finalCallerName = doctor.name;
-                }
-              }
-            }
-          } catch (error) {
-            console.error('Error fetching caller info:', error);
-            finalCallerName = 'Unknown';
-          }
-        }
-        
-        // Generate channel name if not provided
-        let finalChannelName = channelName;
-        if (!finalChannelName) {
-          const sorted = [callerId, receiverId].sort();
-          finalChannelName = `call_${sorted[0]}_${sorted[1]}`;
-        }
-        
-        // Send call notification to receiver with all necessary info
+        // Send call notification to receiver
         io.to(receiverSocketId).emit('incoming_call', {
           callerId,
           receiverId,
           callType,
-          channelName: finalChannelName,
-          callerName: finalCallerName,
           callerSocketId,
           receiverSocketId
         });
         
-        console.log('📞 Call notification sent to receiver:', {
-          receiverId,
-          callerName: finalCallerName,
-          channelName: finalChannelName,
-          callType
-        });
+        console.log('📞 Call notification sent to receiver');
       } else {
         // Receiver is offline
-        console.log('❌ Receiver is offline:', receiverId);
-        if (callerSocketId) {
-          io.to(callerSocketId).emit('call_failed', {
-            reason: 'User is offline'
-          });
-        }
+        io.to(callerSocketId).emit('call_failed', {
+          reason: 'User is offline'
+        });
       }
     });
 
@@ -241,59 +210,6 @@ const handleSocketConnection = (io) => {
     socket.on('end_call', ({ targetSocketId }) => {
       io.to(targetSocketId).emit('call_ended');
       socket.emit('call_ended');
-    });
-
-    // Handle emergency alert creation
-    socket.on('create_emergency', async (data) => {
-      try {
-        console.log('🚨 Emergency alert received via socket:', data);
-        
-        // This is handled by the REST API, but we can emit notifications here
-        // The actual creation happens in the POST /api/emergency route
-        socket.broadcast.emit('emergency_alert', data);
-      } catch (error) {
-        console.error('❌ Error handling emergency alert:', error);
-      }
-    });
-
-    // Handle joining emergency monitoring rooms (for admins/doctors)
-    socket.on('join_emergency_monitoring', async (userId) => {
-      try {
-        const user = await User.findById(userId);
-        if (user && (user.role === 'admin' || user.role === 'doctor')) {
-          socket.join('admins');
-          socket.join('doctors');
-          console.log('✅ User joined emergency monitoring:', userId);
-        }
-      } catch (error) {
-        console.error('❌ Error joining emergency monitoring:', error);
-      }
-    });
-
-    // Handle emergency status updates
-    socket.on('emergency_status_update', async (data) => {
-      try {
-        const { emergencyId, status, userId } = data;
-        
-        const emergency = await Emergency.findById(emergencyId);
-        if (emergency) {
-          // Emit to patient
-          const patientSocketId = connectedUsers.get(emergency.patientId.toString());
-          if (patientSocketId) {
-            io.to(patientSocketId).emit('emergency_status_changed', {
-              emergencyId,
-              status,
-              message: `Emergency status updated to ${status}`
-            });
-          }
-          
-          // Emit to all admins and doctors
-          io.to('admins').emit('emergency_updated', { emergencyId, status });
-          io.to('doctors').emit('emergency_updated', { emergencyId, status });
-        }
-      } catch (error) {
-        console.error('❌ Error updating emergency status:', error);
-      }
     });
 
     // Handle disconnect

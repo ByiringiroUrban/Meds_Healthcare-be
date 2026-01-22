@@ -222,4 +222,105 @@ router.delete('/users/:id', authenticate, async (req, res) => {
   }
 });
 
+// GET /api/auth/settings - Get user settings
+router.get('/settings', authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('settings');
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Return default settings if none exist
+    const defaultSettings = {
+      notifications: {
+        email: true,
+        sms: false,
+        push: true,
+        appointmentReminders: true,
+        healthTips: true
+      },
+      privacy: {
+        profileVisibility: 'private',
+        dataSharing: false,
+        analytics: true
+      },
+      preferences: {
+        language: 'en',
+        theme: 'light',
+        timezone: 'UTC'
+      }
+    };
+
+    res.json(user.settings || defaultSettings);
+  } catch (error) {
+    console.error('Error fetching user settings:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+});
+
+// PUT /api/auth/settings - Update user settings
+router.put('/settings', authenticate, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const { notifications, privacy, preferences } = req.body;
+
+    // Update settings if provided
+    if (notifications) {
+      user.settings = user.settings || {};
+      user.settings.notifications = {
+        ...user.settings.notifications,
+        ...notifications
+      };
+    }
+
+    if (privacy) {
+      user.settings = user.settings || {};
+      user.settings.privacy = {
+        ...user.settings.privacy,
+        ...privacy
+      };
+    }
+
+    if (preferences) {
+      user.settings = user.settings || {};
+      user.settings.preferences = {
+        ...user.settings.preferences,
+        ...preferences
+      };
+    }
+
+    await user.save();
+
+    // Return updated settings
+    const defaultSettings = {
+      notifications: {
+        email: true,
+        sms: false,
+        push: true,
+        appointmentReminders: true,
+        healthTips: true
+      },
+      privacy: {
+        profileVisibility: 'private',
+        dataSharing: false,
+        analytics: true
+      },
+      preferences: {
+        language: 'en',
+        theme: 'light',
+        timezone: 'UTC'
+      }
+    };
+
+    res.json(user.settings || defaultSettings);
+  } catch (error) {
+    console.error('Error updating user settings:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
 module.exports = router;

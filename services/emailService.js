@@ -2,11 +2,21 @@ const nodemailer = require('nodemailer');
 
 // Create transporter
 const createTransport = () => {
+  const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ADDRESS;
+  const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_APP_PASSWORD;
+
+  // Check if email credentials are configured
+  if (!emailUser || !emailPass) {
+    console.warn('⚠️  Email credentials not configured. Email sending will be disabled.');
+    console.warn('💡 To enable email sending, set EMAIL_USER and EMAIL_PASS in your .env file');
+    return null;
+  }
+
   return nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: 'urbanpac20@gmail.com',
-      pass: 'nrsjziujoqnshkaw'
+      user: emailUser,
+      pass: emailPass
     }
   });
 };
@@ -241,8 +251,26 @@ const sendOTPEmail = async (email, userName, otp) => {
   try {
     const transporter = createTransport();
     
+    // If transporter is null, credentials are not configured - log to console instead
+    if (!transporter) {
+      console.log('\n============================================================');
+      console.log('📧 OTP VERIFICATION CODE (Email not configured)');
+      console.log('============================================================');
+      console.log('👤 User:', userName);
+      console.log('📧 Email:', email);
+      console.log('🔐 OTP Code:', otp);
+      console.log('⏰ Expires: 10 minutes');
+      console.log('============================================================');
+      console.log('💡 To enable email sending, configure EMAIL_USER and EMAIL_PASS in .env file');
+      console.log('💡 For Gmail, use an App Password (not your regular password)');
+      console.log('============================================================\n');
+      return { success: true, messageId: 'console-logged', consoleLogged: true };
+    }
+
+    const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ADDRESS || 'urbanpac20@gmail.com';
+    
     const mailOptions = {
-      from: '"Meds Healthcare" <urbanpac20@gmail.com>',
+      from: `"Meds Healthcare" <${emailUser}>`,
       to: email,
       subject: '🔐 Verify Your Email - Meds Healthcare',
       html: createOTPEmailTemplate(userName, otp),
@@ -255,6 +283,27 @@ const sendOTPEmail = async (email, userName, otp) => {
     return { success: true, messageId: result.messageId };
   } catch (error) {
     console.error('❌ Error sending OTP email:', error);
+    
+    // If authentication fails, log to console as fallback
+    if (error.code === 'EAUTH' || error.responseCode === 535) {
+      console.log('\n============================================================');
+      console.log('⚠️  EMAIL AUTHENTICATION FAILED - Using Console Fallback');
+      console.log('============================================================');
+      console.log('👤 User:', userName);
+      console.log('📧 Email:', email);
+      console.log('🔐 OTP Code:', otp);
+      console.log('⏰ Expires: 10 minutes');
+      console.log('============================================================');
+      console.log('💡 Gmail Authentication Error - Please check:');
+      console.log('   1. EMAIL_USER and EMAIL_PASS are set in .env file');
+      console.log('   2. You are using a Gmail App Password (not regular password)');
+      console.log('   3. 2-Step Verification is enabled on your Google account');
+      console.log('   4. App Password is generated correctly');
+      console.log('   📖 Guide: https://support.google.com/accounts/answer/185833');
+      console.log('============================================================\n');
+      return { success: true, messageId: 'console-logged', consoleLogged: true, error: error.message };
+    }
+    
     return { success: false, error: error.message };
   }
 };
@@ -264,8 +313,16 @@ const sendWelcomeEmail = async (email, userName) => {
   try {
     const transporter = createTransport();
     
+    // If transporter is null, skip sending welcome email
+    if (!transporter) {
+      console.log('⚠️  Welcome email skipped - Email credentials not configured');
+      return { success: true, messageId: 'skipped', skipped: true };
+    }
+
+    const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ADDRESS || 'urbanpac20@gmail.com';
+    
     const mailOptions = {
-      from: '"Meds Healthcare" <urbanpac20@gmail.com>',
+      from: `"Meds Healthcare" <${emailUser}>`,
       to: email,
       subject: '🎉 Welcome to Meds Healthcare!',
       html: `

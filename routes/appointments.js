@@ -56,15 +56,7 @@ router.get('/doctor', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Doctor only.' });
     }
 
-    // Find the Doctor document that matches the logged-in user's email
-    const doctor = await Doctor.findOne({ email: req.user.email });
-    
-    if (!doctor) {
-      return res.status(404).json({ error: 'Doctor profile not found' });
-    }
-
-    // Query appointments using the Doctor's _id
-    const appointments = await Appointment.find({ doctorId: doctor._id })
+    const appointments = await Appointment.find({ doctorId: req.user.id })
       .populate('doctorId', 'name specialty')
       .populate('specialtyId', 'name')
       .sort({ appointmentDate: 1 });
@@ -171,18 +163,8 @@ router.put('/:id', authenticate, async (req, res) => {
     }
 
     // If user is doctor, ensure they can only update their own appointments
-    if (req.user.role === 'doctor') {
-      // Find the Doctor document that matches the logged-in user's email
-      const doctor = await Doctor.findOne({ email: req.user.email });
-      
-      if (!doctor) {
-        return res.status(404).json({ error: 'Doctor profile not found' });
-      }
-      
-      // Check if the appointment belongs to this doctor
-      if (appointment.doctorId._id.toString() !== doctor._id.toString()) {
-        return res.status(403).json({ error: 'Access denied. You can only update your own appointments.' });
-      }
+    if (req.user.role === 'doctor' && appointment.doctorId._id.toString() !== req.user.id) {
+      return res.status(403).json({ error: 'Access denied. You can only update your own appointments.' });
     }
 
     const oldStatus = appointment.status;
@@ -276,69 +258,22 @@ router.put('/:id', authenticate, async (req, res) => {
   }
 });
 
-// DELETE /api/appointments/:id - Delete appointment (admin and doctor can delete)
+// DELETE /api/appointments/:id - Cancel appointment (admin only)
 router.delete('/:id', authenticate, async (req, res) => {
   try {
-    // Allow both admin and doctors to delete appointments
-    if (req.user.role !== 'admin' && req.user.role !== 'doctor') {
-      return res.status(403).json({ error: 'Access denied. Admin or Doctor only.' });
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Access denied. Admin only.' });
     }
 
-    const appointment = await Appointment.findById(req.params.id)
-      .populate('doctorId', 'name email');
-    
+    const appointment = await Appointment.findByIdAndDelete(req.params.id);
     if (!appointment) {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    // If user is doctor, ensure they can only delete their own appointments
-    if (req.user.role === 'doctor') {
-      // Find the Doctor document that matches the logged-in user's email
-      const doctor = await Doctor.findOne({ email: req.user.email });
-      
-      if (!doctor) {
-        return res.status(404).json({ error: 'Doctor profile not found' });
-      }
-      
-      // Check if the appointment belongs to this doctor
-      if (appointment.doctorId._id.toString() !== doctor._id.toString()) {
-        return res.status(403).json({ error: 'Access denied. You can only delete your own appointments.' });
-      }
-    }
-
-    // Send cancellation email before deleting
-    try {
-      const mailOptions = {
-        from: 'byiringirourban20@gmail.com',
-        to: appointment.patientEmail,
-        subject: 'Appointment Cancelled - MEDS Healthcare',
-        html: `
-          <h2>Appointment Cancelled</h2>
-          <p>Dear ${appointment.patientName},</p>
-          <p>We regret to inform you that your appointment scheduled for ${new Date(appointment.appointmentDate).toLocaleDateString()} at ${appointment.appointmentTime} has been cancelled.</p>
-          
-          <p>Please contact us to reschedule your appointment:</p>
-          <ul>
-            <li>📞 Phone: +1-234-567-8900</li>
-            <li>📧 Email: info@medshealthcare.com</li>
-          </ul>
-          
-          <p>We apologize for any inconvenience.</p>
-          <p>Best regards,<br/>MEDS Healthcare Team</p>
-        `
-      };
-      await transporter.sendMail(mailOptions);
-      console.log('Cancellation email sent successfully');
-    } catch (emailError) {
-      console.error('Failed to send cancellation email:', emailError);
-    }
-
-    await Appointment.findByIdAndDelete(req.params.id);
-
-    res.json({ message: 'Appointment deleted successfully' });
+    res.json({ message: 'Appointment cancelled successfully' });
   } catch (error) {
-    console.error('Error deleting appointment:', error);
-    res.status(500).json({ error: 'Failed to delete appointment' });
+    console.error('Error cancelling appointment:', error);
+    res.status(500).json({ error: 'Failed to cancel appointment' });
   }
 });
 

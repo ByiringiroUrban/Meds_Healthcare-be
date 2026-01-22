@@ -28,7 +28,7 @@ const DoctorSchema = new mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: [, "doctor", ],
+      enum: [, "doctor",],
       default: "doctor",
     },
     experience: {
@@ -44,7 +44,7 @@ const DoctorSchema = new mongoose.Schema(
     },
     image: {
       type: String,
-      default: "/placeholder.svg",
+      default: "/placeholder.png",
     },
     qualifications: [
       {
@@ -73,6 +73,10 @@ const DoctorSchema = new mongoose.Schema(
     isActive: {
       type: Boolean,
       default: true,
+    },
+    address: {
+      type: String,
+      default: "Juba, South Sudan",
     },
   },
   {

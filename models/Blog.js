@@ -37,7 +37,7 @@ const blogSchema = new mongoose.Schema({
   }],
   image: {
     type: String,
-    default: '/placeholder.svg'
+    default: '/placeholder.png'
   },
   readTime: {
     type: String,
