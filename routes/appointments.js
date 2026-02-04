@@ -2,9 +2,26 @@ const express = require('express');
 const router = express.Router();
 const Appointment = require('../models/Appointment');
 const Doctor = require('../models/Doctor');
+const User = require('../models/User');
 const Specialty = require('../models/Specialty');
 const { authenticate } = require('../middleware/auth');
 const nodemailer = require('nodemailer');
+
+/**
+ * Get all doctor IDs that represent the current user (doctor).
+ * Doctors can log in as User (req.user.id = User._id) but appointments may be stored with Doctor._id.
+ * Returns [User._id, Doctor._id] so we can find all appointments for this doctor.
+ */
+async function getDoctorIdsForUser(reqUser) {
+  const ids = [reqUser.id || reqUser._id].filter(Boolean).map(id => id.toString());
+  if (reqUser.email) {
+    const doctorByEmail = await Doctor.findOne({ email: reqUser.email.toLowerCase().trim() }).select('_id').lean();
+    if (doctorByEmail && !ids.includes(doctorByEmail._id.toString())) {
+      ids.push(doctorByEmail._id.toString());
+    }
+  }
+  return ids;
+}
 
 // Configure nodemailer
 const transporter = nodemailer.createTransport({
@@ -56,7 +73,12 @@ router.get('/doctor', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Access denied. Doctor only.' });
     }
 
-    const appointments = await Appointment.find({ doctorId: req.user.id })
+    const doctorIds = await getDoctorIdsForUser(req.user);
+    if (doctorIds.length === 0) {
+      return res.json([]);
+    }
+
+    const appointments = await Appointment.find({ doctorId: { $in: doctorIds } })
       .populate('doctorId', 'name specialty')
       .populate('specialtyId', 'name')
       .sort({ appointmentDate: 1 });
@@ -68,7 +90,7 @@ router.get('/doctor', authenticate, async (req, res) => {
   }
 });
 
-// POST /api/appointments - Create new appointment
+// POST /api/appointments - Create new appointment (accept doctorId as Doctor._id or User._id for same doctor)
 router.post('/', async (req, res) => {
   try {
     const { 
@@ -88,10 +110,32 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Get doctor and specialty details for email
-    const doctor = await Doctor.findById(doctorId);
+    // Resolve doctorId: may be Doctor._id (from Doctor collection) or User._id (from combined list)
+    let doctor = await Doctor.findById(doctorId);
+    if (!doctor) {
+      const userDoctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('email name').lean();
+      if (userDoctor) {
+        doctor = await Doctor.findOne({ email: userDoctor.email.toLowerCase().trim() });
+        if (!doctor) {
+          // User-only doctor: create minimal Doctor record so appointment can be stored and doctor can see it
+          const spec = await Specialty.findById(specialtyId).select('_id name').lean();
+          doctor = new Doctor({
+            name: userDoctor.name,
+            email: userDoctor.email,
+            specialtyId: spec?._id || specialtyId,
+            specialty: (spec && spec.name) ? spec.name : 'General',
+            experience: 0,
+            consultationFee: 50,
+            password: 'sync-only-no-login',
+            isActive: true,
+            isAvailable: true
+          });
+          await doctor.save();
+        }
+      }
+    }
+
     const specialty = await Specialty.findById(specialtyId);
-    
     if (!doctor || !specialty) {
       return res.status(400).json({ error: 'Invalid doctor or specialty' });
     }
@@ -100,7 +144,7 @@ router.post('/', async (req, res) => {
       patientName,
       patientEmail,
       patientPhone,
-      doctorId,
+      doctorId: doctor._id,
       specialtyId,
       appointmentDate,
       appointmentTime,
@@ -162,9 +206,13 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Appointment not found' });
     }
 
-    // If user is doctor, ensure they can only update their own appointments
-    if (req.user.role === 'doctor' && appointment.doctorId._id.toString() !== req.user.id) {
-      return res.status(403).json({ error: 'Access denied. You can only update your own appointments.' });
+    // If user is doctor, ensure they can only update their own appointments (match by User._id or Doctor._id)
+    if (req.user.role === 'doctor') {
+      const doctorIds = await getDoctorIdsForUser(req.user);
+      const appointmentDoctorId = (appointment.doctorId && appointment.doctorId._id ? appointment.doctorId._id : appointment.doctorId).toString();
+      if (!doctorIds.includes(appointmentDoctorId)) {
+        return res.status(403).json({ error: 'Access denied. You can only update your own appointments.' });
+      }
     }
 
     const oldStatus = appointment.status;

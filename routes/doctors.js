@@ -1,24 +1,66 @@
 const express = require('express');
 const router = express.Router();
 const Doctor = require('../models/Doctor');
+const User = require('../models/User');
 const Specialty = require('../models/Specialty');
 const { authenticate } = require('../middleware/auth');
 
-// GET /api/doctors - Get all active doctors
+// Helper: shape a User (role doctor) into a doctor-like object for listing
+function userToDoctorShape(user) {
+  return {
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    specialtyId: null,
+    specialty: user.specialty || 'General',
+    experience: user.experience != null ? user.experience : 0,
+    rating: 4.5,
+    image: user.avatar || '/placeholder.png',
+    qualifications: user.bio ? [user.bio] : [],
+    availability: {},
+    consultationFee: 50,
+    isAvailable: user.isActive !== false,
+    isActive: user.isActive !== false,
+    source: 'user'
+  };
+}
+
+// GET /api/doctors - Get all doctors (from Doctor collection + User collection with role doctor)
 router.get('/', async (req, res) => {
   try {
     const { specialty } = req.query;
-    let query = { isActive: true };
 
+    // 1. All doctors from Doctor collection (include both active and inactive so self-registered show)
+    let doctorQuery = {};
     if (specialty) {
-      query.specialty = specialty;
+      doctorQuery.specialty = specialty;
     }
-
-    const doctors = await Doctor.find(query)
+    const doctorDocs = await Doctor.find(doctorQuery)
+      .select('-password')
       .populate('specialtyId', 'name description')
-      .sort({ name: 1 });
+      .sort({ name: 1 })
+      .lean();
 
-    res.json(doctors);
+    const doctorEmails = new Set(doctorDocs.map((d) => d.email.toLowerCase().trim()));
+
+    // 2. All users with role 'doctor' who don't already have a Doctor record
+    const userQuery = { role: 'doctor' };
+    if (specialty) {
+      userQuery.specialty = specialty;
+    }
+    const doctorUsers = await User.find(userQuery)
+      .select('name email specialty experience avatar bio isActive')
+      .lean();
+
+    const fromUsers = doctorUsers
+      .filter((u) => !doctorEmails.has((u.email || '').toLowerCase().trim()))
+      .map((u) => userToDoctorShape(u));
+
+    // Combine and sort by name
+    const combined = [...doctorDocs.map((d) => ({ ...d, source: 'doctor' })), ...fromUsers];
+    combined.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+    res.json(combined);
   } catch (error) {
     console.error('Error fetching doctors:', error);
     res.status(500).json({ error: 'Failed to fetch doctors' });
@@ -43,17 +85,27 @@ router.get('/all', authenticate, async (req, res) => {
   }
 });
 
-// GET /api/doctors/:id - Get doctor by ID
+// GET /api/doctors/:id - Get doctor by ID (Doctor collection or User collection)
 router.get('/:id', async (req, res) => {
   try {
-    const doctor = await Doctor.findById(req.params.id)
-      .populate('specialtyId', 'name description');
+    const id = req.params.id;
+    let doctor = await Doctor.findById(id)
+      .populate('specialtyId', 'name description')
+      .lean();
 
-    if (!doctor) {
-      return res.status(404).json({ error: 'Doctor not found' });
+    if (doctor) {
+      return res.json(doctor);
     }
 
-    res.json(doctor);
+    // Try User collection (doctor role) so User-only doctors are resolvable
+    const user = await User.findOne({ _id: id, role: 'doctor' })
+      .select('name email specialty experience avatar bio isActive')
+      .lean();
+    if (user) {
+      return res.json(userToDoctorShape(user));
+    }
+
+    return res.status(404).json({ error: 'Doctor not found' });
   } catch (error) {
     console.error('Error fetching doctor:', error);
     res.status(500).json({ error: 'Failed to fetch doctor' });

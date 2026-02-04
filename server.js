@@ -19,6 +19,7 @@ const blogRoutes = require('./routes/blogs');
 const activityRoutes = require('./routes/activities');
 const testimonialRoutes = require('./routes/testimonials');
 const chatRoutes = require('./routes/chat');
+const agoraRoutes = require('./routes/agora');
 const adminRoutes = require('./routes/admin');
 
 // Load environment variables
@@ -39,6 +40,9 @@ const io = socketIo(server, {
   maxHttpBufferSize: 1e8,
   transports: ['websocket', 'polling']
 });
+
+// Make io available to routes (e.g. chat, emergency)
+app.set('io', io);
 
 // Initialize socket handlers (this replaces the duplicate handler below)
 handleSocketConnection(io);
@@ -70,6 +74,7 @@ app.use('/api/activities', activityRoutes);
 app.use('/api/testimonials', testimonialRoutes);
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/chat', chatRoutes);
+app.use('/api/agora', agoraRoutes);
 app.use('/api/admin', adminRoutes);
 
 // Health check route

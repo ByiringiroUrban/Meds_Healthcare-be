@@ -1,9 +1,11 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const Doctor = require('../models/Doctor');
 
 /**
  * Authentication middleware
- * Verifies JWT token and attaches user to request object
+ * Verifies JWT token and attaches user to request object.
+ * Supports both User and Doctor collections (doctors may log in via either).
  */
 const authenticate = async (req, res, next) => {
   try {
@@ -26,8 +28,25 @@ const authenticate = async (req, res, next) => {
     // Verify token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Find user by ID from token
-    const user = await User.findById(decoded.userId).select('-password');
+    // Find user by ID from token (User collection first)
+    let user = await User.findById(decoded.userId).select('-password');
+    if (!user) {
+      // Try Doctor collection (doctors may log in via Doctor table)
+      const doctor = await Doctor.findById(decoded.userId).select('-password').lean();
+      if (doctor) {
+        user = {
+          _id: doctor._id,
+          id: doctor._id.toString(),
+          name: doctor.name,
+          email: doctor.email,
+          role: 'doctor',
+          isActive: doctor.isActive !== false,
+          avatar: doctor.image,
+          specialty: doctor.specialty,
+          experience: doctor.experience
+        };
+      }
+    }
     if (!user) {
       return res.status(401).json({
         success: false,
@@ -36,7 +55,7 @@ const authenticate = async (req, res, next) => {
     }
 
     // Check if user is active
-    if (!user.isActive) {
+    if (user.isActive === false) {
       return res.status(401).json({
         success: false,
         message: 'Account is deactivated. Please contact support.'
