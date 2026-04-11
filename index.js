@@ -42,6 +42,7 @@ app.use('/api/activities', require('./routes/activities'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/testimonials', require('./routes/testimonials'));
 app.use('/api/chat', require('./routes/chat'));
+app.use('/api/ai-navigation', require('./routes/aiNavigation'));
 
 // Debug: Log all registered routes
 console.log('🔍 Chat routes registered at /api/chat');

@@ -19,6 +19,7 @@ const blogRoutes = require('./routes/blogs');
 const activityRoutes = require('./routes/activities');
 const testimonialRoutes = require('./routes/testimonials');
 const chatRoutes = require('./routes/chat');
+const aiNavigationRoutes = require('./routes/aiNavigation');
 const agoraRoutes = require('./routes/agora');
 const adminRoutes = require('./routes/admin');
 
@@ -74,6 +75,7 @@ app.use('/api/activities', activityRoutes);
 app.use('/api/testimonials', testimonialRoutes);
 app.use('/api/categories', require('./routes/categories'));
 app.use('/api/chat', chatRoutes);
+app.use('/api/ai-navigation', aiNavigationRoutes);
 app.use('/api/agora', agoraRoutes);
 app.use('/api/admin', adminRoutes);
 
