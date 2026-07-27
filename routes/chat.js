@@ -329,6 +329,34 @@ router.post('/rooms/create', authenticate, async (req, res) => {
     
     console.log('✅ Participant found:', participant.name, 'Type:', participant.role || 'Doctor');
 
+    // If patient is attempting to chat with a doctor, verify an appointment exists
+    if (req.user.role === 'patient') {
+      const Appointment = require('../models/Appointment');
+      const doctorEmails = [participant.email?.toLowerCase().trim()].filter(Boolean);
+      const doctorIds = [participant._id, participantId, participantIdForRoom].filter(Boolean);
+
+      let hasAppointment = await Appointment.exists({
+        patientEmail: req.user.email.toLowerCase().trim(),
+        doctorId: { $in: doctorIds }
+      });
+
+      if (!hasAppointment && doctorEmails.length > 0) {
+        const docRecord = await Doctor.findOne({ email: { $in: doctorEmails } }).select('_id').lean();
+        if (docRecord) {
+          hasAppointment = await Appointment.exists({
+            patientEmail: req.user.email.toLowerCase().trim(),
+            doctorId: docRecord._id
+          });
+        }
+      }
+
+      if (!hasAppointment) {
+        return res.status(403).json({
+          error: 'Appointment required. You must book an appointment with this doctor before you can start a chat.'
+        });
+      }
+    }
+
     // Find existing room or create new one (use participantIdForRoom for consistent User ref)
     let room = await ChatRoom.findOne({
       participants: { $all: [userId, participantIdForRoom] }

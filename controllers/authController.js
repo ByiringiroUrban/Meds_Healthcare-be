@@ -163,6 +163,7 @@ const register = async (req, res) => {
       data: {
         user: userResponse,
         requiresVerification: true,
+        devOtp: process.env.NODE_ENV === 'development' ? otp : undefined,
         message: 'Please check your email and enter the verification code to complete your registration.'
       }
     });
@@ -470,7 +471,10 @@ const resendOTP = async (req, res) => {
 
     res.json({
       success: true,
-      message: 'New verification code sent to your email'
+      message: 'New verification code sent to your email',
+      data: {
+        devOtp: process.env.NODE_ENV === 'development' ? otp : undefined
+      }
     });
 
   } catch (error) {

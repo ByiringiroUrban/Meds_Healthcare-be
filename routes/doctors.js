@@ -32,8 +32,8 @@ router.get('/', async (req, res) => {
 
     // 1. All doctors from Doctor collection (include both active and inactive so self-registered show)
     let doctorQuery = {};
-    if (specialty) {
-      doctorQuery.specialty = specialty;
+    if (specialty && specialty !== 'All') {
+      doctorQuery.specialty = new RegExp(`^${specialty.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i');
     }
     const doctorDocs = await Doctor.find(doctorQuery)
       .select('-password')
@@ -45,8 +45,8 @@ router.get('/', async (req, res) => {
 
     // 2. All users with role 'doctor' who don't already have a Doctor record
     const userQuery = { role: 'doctor' };
-    if (specialty) {
-      userQuery.specialty = specialty;
+    if (specialty && specialty !== 'All') {
+      userQuery.specialty = new RegExp(`^${specialty.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i');
     }
     const doctorUsers = await User.find(userQuery)
       .select('name email specialty experience avatar bio isActive')

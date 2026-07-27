@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 // Create transporter
 const createTransport = () => {
   const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ADDRESS;
-  const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_APP_PASSWORD;
+  let emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || process.env.EMAIL_APP_PASSWORD;
 
   // Check if email credentials are configured
   if (!emailUser || !emailPass) {
@@ -12,11 +12,14 @@ const createTransport = () => {
     return null;
   }
 
+  // Remove all spaces from App Password (e.g., "txwy ywhl avow hbcr" -> "txwyywhlavowhbcr")
+  emailPass = emailPass.replace(/\s+/g, '');
+
   return nodemailer.createTransport({
     service: "gmail",
     auth: {
-      user: emailUser,
-      pass: emailPass
+      user: emailUser.trim(),
+      pass: emailPass.trim()
     }
   });
 };

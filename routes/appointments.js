@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const mongoose = require('mongoose');
 const Appointment = require('../models/Appointment');
 const Doctor = require('../models/Doctor');
 const User = require('../models/User');
@@ -110,23 +111,45 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Resolve doctorId: may be Doctor._id (from Doctor collection) or User._id (from combined list)
-    let doctor = await Doctor.findById(doctorId);
+    // 1. Resolve specialty: by ObjectId or by Specialty Name
+    let specialty = null;
+    if (mongoose.Types.ObjectId.isValid(specialtyId)) {
+      specialty = await Specialty.findById(specialtyId);
+    }
+    if (!specialty) {
+      specialty = await Specialty.findOne({
+        name: new RegExp(`^${String(specialtyId).replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i')
+      });
+    }
+    if (!specialty) {
+      specialty = await Specialty.findOne({ name: 'General Medicine' }) || await Specialty.findOne({});
+    }
+
+    // 2. Resolve doctor: by Doctor ObjectId, User ObjectId, or email/name
+    let doctor = null;
+    if (mongoose.Types.ObjectId.isValid(doctorId)) {
+      doctor = await Doctor.findById(doctorId);
+    }
     if (!doctor) {
-      const userDoctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('email name').lean();
+      const userDoctor = await User.findOne({
+        $or: [
+          ...(mongoose.Types.ObjectId.isValid(doctorId) ? [{ _id: doctorId }] : []),
+          { email: String(doctorId).toLowerCase().trim() }
+        ],
+        role: 'doctor'
+      }).select('email name specialty').lean();
+
       if (userDoctor) {
         doctor = await Doctor.findOne({ email: userDoctor.email.toLowerCase().trim() });
         if (!doctor) {
-          // User-only doctor: create minimal Doctor record so appointment can be stored and doctor can see it
-          const spec = await Specialty.findById(specialtyId).select('_id name').lean();
           doctor = new Doctor({
             name: userDoctor.name,
             email: userDoctor.email,
-            specialtyId: spec?._id || specialtyId,
-            specialty: (spec && spec.name) ? spec.name : 'General',
-            experience: 0,
+            specialtyId: specialty?._id || new mongoose.Types.ObjectId(),
+            specialty: specialty?.name || userDoctor.specialty || 'General Medicine',
+            experience: 5,
             consultationFee: 50,
-            password: 'sync-only-no-login',
+            password: 'defaultPassword123',
             isActive: true,
             isAvailable: true
           });
@@ -135,17 +158,16 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const specialty = await Specialty.findById(specialtyId);
     if (!doctor || !specialty) {
       return res.status(400).json({ error: 'Invalid doctor or specialty' });
     }
 
     const appointment = new Appointment({
-      patientName,
-      patientEmail,
-      patientPhone,
+      patientName: patientName.trim(),
+      patientEmail: patientEmail.toLowerCase().trim(),
+      patientPhone: patientPhone.trim(),
       doctorId: doctor._id,
-      specialtyId,
+      specialtyId: specialty._id,
       appointmentDate,
       appointmentTime,
       notes: notes || ''
@@ -153,29 +175,46 @@ router.post('/', async (req, res) => {
 
     await appointment.save();
     
-    // Send confirmation email
-    const mailOptions = {
-      from: 'byiringirourban20@gmail.com',
-      to: patientEmail,
-      subject: 'Appointment Confirmation - MEDS Healthcare',
-      html: `
-        <h2>Appointment Confirmation</h2>
-        <p>Dear ${patientName},</p>
-        <p>Your appointment has been successfully booked. Here are the details:</p>
-        <ul>
-          <li><strong>Doctor:</strong> ${doctor.name}</li>
-          <li><strong>Specialty:</strong> ${specialty.name}</li>
-          <li><strong>Date:</strong> ${new Date(appointmentDate).toLocaleDateString()}</li>
-          <li><strong>Time:</strong> ${appointmentTime}</li>
-          <li><strong>Phone:</strong> ${patientPhone}</li>
-        </ul>
-        ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ''}
-        <p>Please arrive 15 minutes before your scheduled appointment time.</p>
-        <p>Thank you for choosing MEDS Healthcare!</p>
-      `
-    };
+    // 3. Send confirmation email safely (in try-catch so email failure never blocks appointment creation)
+    try {
+      const emailUser = process.env.EMAIL_USER || process.env.EMAIL_ADDRESS || 'urbanpac20@gmail.com';
+      let emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD || 'zljw hslg rxpb mqpu';
+      emailPass = emailPass.replace(/\s+/g, '');
 
-    await transporter.sendMail(mailOptions);
+      const emailTransporter = nodemailer.createTransport({
+        service: 'gmail',
+        auth: {
+          user: emailUser.trim(),
+          pass: emailPass.trim()
+        }
+      });
+
+      const mailOptions = {
+        from: `"MEDS Healthcare" <${emailUser}>`,
+        to: patientEmail,
+        subject: 'Appointment Confirmation - MEDS Healthcare',
+        html: `
+          <h2>Appointment Confirmation</h2>
+          <p>Dear ${patientName},</p>
+          <p>Your appointment has been successfully booked. Here are the details:</p>
+          <ul>
+            <li><strong>Doctor:</strong> ${doctor.name}</li>
+            <li><strong>Specialty:</strong> ${specialty.name}</li>
+            <li><strong>Date:</strong> ${new Date(appointmentDate).toLocaleDateString()}</li>
+            <li><strong>Time:</strong> ${appointmentTime}</li>
+            <li><strong>Phone:</strong> ${patientPhone}</li>
+          </ul>
+          ${notes ? `<p><strong>Notes:</strong> ${notes}</p>` : ''}
+          <p>Please arrive 15 minutes before your scheduled appointment time.</p>
+          <p>Thank you for choosing MEDS Healthcare!</p>
+        `
+      };
+
+      await emailTransporter.sendMail(mailOptions);
+      console.log('✅ Appointment confirmation email sent to:', patientEmail);
+    } catch (emailError) {
+      console.error('⚠️ Could not send confirmation email (appointment created successfully):', emailError.message);
+    }
     
     const populatedAppointment = await Appointment.findById(appointment._id)
       .populate('doctorId', 'name specialty')
