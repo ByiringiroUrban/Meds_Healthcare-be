@@ -8,6 +8,35 @@ const { authenticate } = require('../middleware/auth');
 // GET /api/specialties - Get all active specialties (PUBLIC)
 router.get('/', async (req, res) => {
   try {
+    const Doctor = require('../models/Doctor');
+    const User = require('../models/User');
+
+    // Auto-sync specialties from Doctor and User collections
+    const doctorRecords = await Doctor.find({ specialty: { $exists: true, $ne: '' } }).select('specialty').lean();
+    const userDoctorRecords = await User.find({ role: 'doctor', specialty: { $exists: true, $ne: '' } }).select('specialty').lean();
+
+    const allDoctorSpecialties = [...doctorRecords, ...userDoctorRecords];
+
+    for (const doc of allDoctorSpecialties) {
+      if (doc.specialty && doc.specialty.trim()) {
+        const cleanName = doc.specialty.trim();
+        const exists = await Specialty.exists({
+          name: new RegExp(`^${cleanName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i')
+        });
+        if (!exists) {
+          try {
+            await Specialty.create({
+              name: cleanName,
+              description: `${cleanName} specialty`,
+              isActive: true
+            });
+          } catch (e) {
+            // Ignore duplicate key errors
+          }
+        }
+      }
+    }
+
     const specialties = await Specialty.find({ isActive: true }).sort({ name: 1 });
     res.json(specialties);
   } catch (error) {

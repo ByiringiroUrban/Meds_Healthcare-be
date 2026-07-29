@@ -588,19 +588,54 @@ const updateProfile = async (req, res) => {
       });
     }
 
-    // If it's a doctor, also update the Doctor collection
+    // If it's a doctor, also update the Doctor collection and ensure Specialty exists in Specialty model
     if (user.role === 'doctor') {
       const doctorUpdateData = {};
       if (name) doctorUpdateData.name = name.trim();
       if (bio) doctorUpdateData.qualifications = [bio.trim()];
-      if (specialty) doctorUpdateData.specialty = specialty.trim();
       if (experience) doctorUpdateData.experience = parseInt(experience);
       if (consultationFee) doctorUpdateData.consultationFee = parseFloat(consultationFee);
 
-      await Doctor.findOneAndUpdate(
-        { email: user.email },
-        doctorUpdateData
-      );
+      const targetSpecialty = specialty ? specialty.trim() : (user.specialty ? user.specialty.trim() : null);
+
+      if (targetSpecialty) {
+        doctorUpdateData.specialty = targetSpecialty;
+
+        // Find or create Specialty document in Specialty collection
+        let specialtyDoc = await Specialty.findOne({
+          name: new RegExp(`^${targetSpecialty.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i')
+        });
+
+        if (!specialtyDoc) {
+          specialtyDoc = new Specialty({
+            name: targetSpecialty,
+            description: `${targetSpecialty} specialty`,
+            isActive: true
+          });
+          await specialtyDoc.save();
+        }
+
+        doctorUpdateData.specialtyId = specialtyDoc._id;
+      }
+
+      let docRecord = await Doctor.findOne({ email: user.email });
+      if (docRecord) {
+        Object.assign(docRecord, doctorUpdateData);
+        await docRecord.save();
+      } else {
+        docRecord = new Doctor({
+          name: user.name,
+          email: user.email,
+          specialty: doctorUpdateData.specialty || 'General Medicine',
+          specialtyId: doctorUpdateData.specialtyId || (await Specialty.findOne())?._id,
+          experience: doctorUpdateData.experience || 5,
+          consultationFee: doctorUpdateData.consultationFee || 50,
+          qualifications: doctorUpdateData.qualifications || [],
+          isAvailable: true,
+          isActive: true
+        });
+        await docRecord.save();
+      }
     }
 
     // Remove password from response

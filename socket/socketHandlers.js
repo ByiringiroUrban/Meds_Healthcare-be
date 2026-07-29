@@ -1,7 +1,6 @@
 
-const ChatMessage = require('../models/ChatMessage');
-const ChatRoom = require('../models/ChatRoom');
-const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+const Doctor = require('../models/Doctor');
 
 const connectedUsers = new Map(); // userId -> socketId mapping
 const userSockets = new Map(); // socketId -> user info mapping
@@ -14,27 +13,42 @@ const handleSocketConnection = (io) => {
     socket.on('join_user', async (userId) => {
       try {
         console.log('👤 User joining:', userId, 'Socket:', socket.id);
-        
-        // If user already has a connection, disconnect the old one
-        const existingSocketId = connectedUsers.get(userId);
-        if (existingSocketId && existingSocketId !== socket.id) {
-          console.log('⚠️ User already connected, disconnecting old socket:', existingSocketId);
-          const oldSocket = io.sockets.sockets.get(existingSocketId);
-          if (oldSocket) {
-            oldSocket.disconnect(true);
+
+        if (!userId) return;
+
+        // Store user connection
+        connectedUsers.set(userId.toString(), socket.id);
+        userSockets.set(socket.id, { userId: userId.toString() });
+
+        // Join primary personal room
+        socket.join(`user_${userId}`);
+
+        // Resolve additional linked IDs (User <-> Doctor mapping by email)
+        let email = null;
+        const uDoc = await User.findById(userId).select('email').lean();
+        if (uDoc && uDoc.email) email = uDoc.email;
+        else {
+          const dDoc = await Doctor.findById(userId).select('email').lean();
+          if (dDoc && dDoc.email) email = dDoc.email;
+        }
+
+        if (email) {
+          const cleanEmail = email.toLowerCase().trim();
+          const linkedDoc = await Doctor.findOne({ email: cleanEmail }).select('_id').lean();
+          if (linkedDoc && linkedDoc._id.toString() !== userId.toString()) {
+            socket.join(`user_${linkedDoc._id}`);
+            connectedUsers.set(linkedDoc._id.toString(), socket.id);
+          }
+          const linkedUser = await User.findOne({ email: cleanEmail }).select('_id').lean();
+          if (linkedUser && linkedUser._id.toString() !== userId.toString()) {
+            socket.join(`user_${linkedUser._id}`);
+            connectedUsers.set(linkedUser._id.toString(), socket.id);
           }
         }
-        
-        // Store user connection
-        connectedUsers.set(userId, socket.id);
-        userSockets.set(socket.id, { userId });
-        
-        // Join user to their personal room
-        socket.join(`user_${userId}`);
-        
+
         // Broadcast user online status
         socket.broadcast.emit('user_online', { userId });
-        
+
         console.log('✅ User joined successfully:', userId);
       } catch (error) {
         console.error('❌ Error joining user:', error);

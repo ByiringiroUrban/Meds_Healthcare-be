@@ -41,14 +41,37 @@ const generateRoomId = (userId1, userId2) => {
 };
 
 /**
- * Get all participant IDs for the current user (for doctors: User._id and Doctor._id)
+ * Get all participant IDs for the current user (for doctors/users: User._id and Doctor._id)
  */
 async function getParticipantIdsForUser(reqUser) {
   const ids = [(reqUser.id || reqUser._id).toString()];
-  if (reqUser.role === 'doctor' && reqUser.email) {
-    const doctorByEmail = await Doctor.findOne({ email: reqUser.email.toLowerCase().trim() }).select('_id').lean();
+  const email = reqUser.email ? reqUser.email.toLowerCase().trim() : null;
+
+  if (email) {
+    const doctorByEmail = await Doctor.findOne({ email }).select('_id').lean();
     if (doctorByEmail && !ids.includes(doctorByEmail._id.toString())) {
       ids.push(doctorByEmail._id.toString());
+    }
+    const userByEmail = await User.findOne({ email }).select('_id').lean();
+    if (userByEmail && !ids.includes(userByEmail._id.toString())) {
+      ids.push(userByEmail._id.toString());
+    }
+  } else {
+    const userId = reqUser.id || reqUser._id;
+    const uDoc = await User.findById(userId).select('email').lean();
+    if (uDoc && uDoc.email) {
+      const doctorByEmail = await Doctor.findOne({ email: uDoc.email.toLowerCase().trim() }).select('_id').lean();
+      if (doctorByEmail && !ids.includes(doctorByEmail._id.toString())) {
+        ids.push(doctorByEmail._id.toString());
+      }
+    } else {
+      const dDoc = await Doctor.findById(userId).select('email').lean();
+      if (dDoc && dDoc.email) {
+        const userByEmail = await User.findOne({ email: dDoc.email.toLowerCase().trim() }).select('_id').lean();
+        if (userByEmail && !ids.includes(userByEmail._id.toString())) {
+          ids.push(userByEmail._id.toString());
+        }
+      }
     }
   }
   return ids;
@@ -57,6 +80,25 @@ async function getParticipantIdsForUser(reqUser) {
 // Debug test route
 router.get('/test', (req, res) => {
   res.json({ message: 'Chat routes are working!', timestamp: new Date().toISOString() });
+});
+
+// Multer for chat document/file/prescription uploads
+const chatFileStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = 'uploads/chat-files';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const ext = path.extname(file.originalname) || '';
+    cb(null, 'file-' + Date.now() + '-' + Math.round(Math.random() * 1E9) + ext);
+  }
+});
+const uploadChatFile = multer({
+  storage: chatFileStorage,
+  limits: { fileSize: 25 * 1024 * 1024 } // 25MB limit
 });
 
 // POST /api/chat/upload-voice - Upload voice message file
@@ -70,6 +112,25 @@ router.post('/upload-voice', authenticate, uploadVoice.single('voice'), (req, re
   } catch (error) {
     console.error('Error uploading voice:', error);
     res.status(500).json({ error: 'Failed to upload voice message' });
+  }
+});
+
+// POST /api/chat/upload-file - Upload general attachment file / prescription
+router.post('/upload-file', authenticate, uploadChatFile.single('file'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const url = `/uploads/chat-files/${req.file.filename}`;
+    res.json({
+      url,
+      originalName: req.file.originalname,
+      mimeType: req.file.mimetype,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('Error uploading chat file:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
   }
 });
 
@@ -100,7 +161,31 @@ router.get('/rooms', authenticate, async (req, res) => {
       return r;
     });
 
-    res.json(roomsWithUnread);
+    // Deduplicate rooms so only ONE room per other participant is returned (taking the most recent one)
+    const uniqueRoomsMap = new Map();
+    roomsWithUnread.forEach((r) => {
+      const myIdStrList = participantIds.map(id => id.toString());
+      const otherParticipant = (r.participants || []).find(
+        (p) => p && !myIdStrList.includes(p._id ? p._id.toString() : p.toString())
+      );
+      const key = otherParticipant && otherParticipant.email
+        ? otherParticipant.email.toLowerCase().trim()
+        : (otherParticipant ? (otherParticipant._id || otherParticipant).toString() : r._id.toString());
+
+      if (!uniqueRoomsMap.has(key)) {
+        uniqueRoomsMap.set(key, r);
+      } else {
+        const existing = uniqueRoomsMap.get(key);
+        const existingTime = new Date(existing.lastActivity || existing.updatedAt || 0).getTime();
+        const currentTime = new Date(r.lastActivity || r.updatedAt || 0).getTime();
+        if (currentTime > existingTime) {
+          uniqueRoomsMap.set(key, r);
+        }
+      }
+    });
+
+    const deduplicatedRooms = Array.from(uniqueRoomsMap.values());
+    res.json(deduplicatedRooms);
   } catch (error) {
     console.error('Error fetching chat rooms:', error);
     res.status(500).json({ error: 'Failed to fetch chat rooms' });
@@ -329,37 +414,21 @@ router.post('/rooms/create', authenticate, async (req, res) => {
     
     console.log('✅ Participant found:', participant.name, 'Type:', participant.role || 'Doctor');
 
-    // If patient is attempting to chat with a doctor, verify an appointment exists
-    if (req.user.role === 'patient') {
-      const Appointment = require('../models/Appointment');
-      const doctorEmails = [participant.email?.toLowerCase().trim()].filter(Boolean);
-      const doctorIds = [participant._id, participantId, participantIdForRoom].filter(Boolean);
-
-      let hasAppointment = await Appointment.exists({
-        patientEmail: req.user.email.toLowerCase().trim(),
-        doctorId: { $in: doctorIds }
-      });
-
-      if (!hasAppointment && doctorEmails.length > 0) {
-        const docRecord = await Doctor.findOne({ email: { $in: doctorEmails } }).select('_id').lean();
-        if (docRecord) {
-          hasAppointment = await Appointment.exists({
-            patientEmail: req.user.email.toLowerCase().trim(),
-            doctorId: docRecord._id
-          });
-        }
-      }
-
-      if (!hasAppointment) {
-        return res.status(403).json({
-          error: 'Appointment required. You must book an appointment with this doctor before you can start a chat.'
-        });
-      }
+    // Find existing room or create new one (check all possible User and Doctor IDs for both participants)
+    const userParticipantIds = await getParticipantIdsForUser(req.user);
+    const targetParticipantIds = [participant._id.toString(), participantId.toString(), participantIdForRoom.toString()].filter(Boolean);
+    if (participant.email) {
+      const pDoc = await Doctor.findOne({ email: participant.email.toLowerCase().trim() }).select('_id').lean();
+      if (pDoc && !targetParticipantIds.includes(pDoc._id.toString())) targetParticipantIds.push(pDoc._id.toString());
+      const pUser = await User.findOne({ email: participant.email.toLowerCase().trim() }).select('_id').lean();
+      if (pUser && !targetParticipantIds.includes(pUser._id.toString())) targetParticipantIds.push(pUser._id.toString());
     }
 
-    // Find existing room or create new one (use participantIdForRoom for consistent User ref)
     let room = await ChatRoom.findOne({
-      participants: { $all: [userId, participantIdForRoom] }
+      $and: [
+        { participants: { $in: userParticipantIds } },
+        { participants: { $in: targetParticipantIds } }
+      ]
     }).populate('participants', 'name email role');
 
     if (!room) {

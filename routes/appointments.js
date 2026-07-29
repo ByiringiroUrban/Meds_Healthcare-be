@@ -55,8 +55,11 @@ router.get('/', authenticate, async (req, res) => {
 // GET /api/appointments/user - Get user's appointments
 router.get('/user', authenticate, async (req, res) => {
   try {
-    const appointments = await Appointment.find({ patientEmail: req.user.email })
-      .populate('doctorId', 'name specialty')
+    const userEmail = req.user.email ? req.user.email.toLowerCase().trim() : '';
+    const appointments = await Appointment.find({
+      patientEmail: { $regex: new RegExp(`^${userEmail.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}$`, 'i') }
+    })
+      .populate('doctorId', 'name email specialty')
       .populate('specialtyId', 'name')
       .sort({ appointmentDate: 1 });
     
